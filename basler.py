@@ -3,6 +3,8 @@ import queue
 import cv2
 import time
 import signal
+import numpy as np
+from vidgear.gears import WriteGear
 
 def find_camera(serial_number):
     tlf = pylon.TlFactory.GetInstance()
@@ -29,9 +31,8 @@ class FrameGrabber(pylon.ImageEventHandler):
 
 
 class BaslerCamera():
-    def __init__(self, cam_id, out, controller):
+    def __init__(self, cam_id, controller):
         self.cam_id = cam_id
-        self.out = out
         self.controller = controller
 
         assert not find_camera(self.cam_id) == None, f"Camera {self.cam_id} not found!"
@@ -55,18 +56,19 @@ class BaslerCamera():
         # TODO: Camera settings
         return self.cam
 
-    def grabAndWrite(self):
-        size = (960, 600)
+    def grabAndWrite(self, shared_out_buffer):
+        img_size = (750, 1000)
         #writer = cv2.VideoWriter(f'video_{cam_id}.avi',
     #                         cv2.VideoWriter_fourcc(*'MJPG'),
         #                     50, size)
         self.setup()
-
         frame_queue = queue.Queue()
         grabber = FrameGrabber(frame_queue)
         self.cam.RegisterImageEventHandler(grabber,
                                   pylon.RegistrationMode_ReplaceAll,
                                   pylon.Cleanup_None)
+        params = {"-input_framerate": 10}
+        self.writer = WriteGear(output="Output.mp4", **params)
 
         # Wait for recording start event
         self.controller.start_event.wait()
@@ -78,14 +80,26 @@ class BaslerCamera():
         # Continue running until frame_queue is empty and stop signal received
         while(not self.controller.is_stopped() or frame_queue.qsize()):
             if(frame_queue.qsize() > 0):
+                if(frame_queue.qsize() > 100):
+                    print(frame_queue.qsize())
                 img = frame_queue.get()
-                self.out = img
+
+                #print(arr)
+
+                with shared_out_buffer.get_lock():
+                    arr = np.frombuffer(shared_out_buffer.get_obj(), dtype=np.int32).reshape(img_size[0],img_size[1])
+                    np.copyto(arr, img)
+
+
+                self.writer.write(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                #arr[0] = 1
+
+                #print(arr)
                 #print("Got Frame!", flush=True)
                 # TODO write image to video
                 #writer.write(img)
-                time.sleep(0.0001)
             else:
-                time.sleep(0.0001) # Prevent loop from going crazy
+                time.sleep(0.00001) # Prevent loop from going crazy
 
             # If not stopped yet, stop and close camera
             if(self.controller.is_stopped() and not self.is_stopped):
@@ -93,13 +107,18 @@ class BaslerCamera():
                 self.is_stopped = True
 
 
-
-
-
     def stop(self):
         print("stopping", flush=True)
         self.cam.StopGrabbing()
         self.cam.Close()
+        self.writer.close()
+
 
 def signal_handler(sig, frame):
     print('You pressed Ctrl+C!')
+
+def to_numpy_array(shared_array, shape):
+    '''Create a numpy array backed by a shared memory Array.'''
+    arr = np.ctypeslib.as_array(shared_array)
+    #print(arr.dtype)
+    return arr.reshape(shape)

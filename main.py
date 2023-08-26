@@ -8,6 +8,8 @@ import cv2
 import time
 import os
 import signal
+import ultralytics
+import ctypes
 
 class Controller():
     def __init__(self):
@@ -23,21 +25,28 @@ class Controller():
     def is_stopped(self):
         return self.stop_event.is_set()
 
-
+def to_numpy_array(shared_array, shape):
+    '''Create a numpy array backed by a shared memory Array.'''
+    arr = np.ctypeslib.as_array(shared_array)
+    return arr.reshape(shape)
 
 if __name__ == '__main__':
+    model = ultralytics.YOLO('models/bat_detection_v16/weights/best.onnx')
+
     os.environ["PYLON_CAMEMU"] = "0"
 
-
-    image_rgba = np.zeros((600, 960, 4), dtype=np.float32)
+    img_size = (750, 1000)
+    image_rgba = np.zeros((img_size[0], img_size[1], 4), dtype=np.float32)
     image_rgba[:, :, -1] = 1
 
     image_rgb = np.ascontiguousarray(image_rgba[:, :, :3])
 
     controller = Controller()
-    out_img = image_rgb
-    cam_1 = basler.BaslerCamera(40258011, out_img, controller)
-    p = multiprocessing.Process(target = cam_1.grabAndWrite)
+
+    shared_buffer = multiprocessing.Array(ctypes.c_uint, img_size[0]*img_size[1])
+
+    cam_1 = basler.BaslerCamera(24260153, controller)
+    p = multiprocessing.Process(target = cam_1.grabAndWrite, args=(shared_buffer,))
     p.start()
 
     def stop():
@@ -49,7 +58,7 @@ if __name__ == '__main__':
 
 
     with dpg.texture_registry(show=True):
-        dpg.add_raw_texture(width=960, height=600, default_value=image_rgb, format=dpg.mvFormat_Float_rgb, tag="texture_tag")
+        dpg.add_raw_texture(width=img_size[1], height=img_size[0], default_value=image_rgb, format=dpg.mvFormat_Float_rgb, tag="texture_tag")
 
 
     with dpg.window(label="Tutorial"):
@@ -60,17 +69,39 @@ if __name__ == '__main__':
     dpg.setup_dearpygui()
 
 
-
-
     dpg.show_metrics()
     dpg.show_viewport()
     controller.start_event.set()
+
+    i = 0
+    coverage_mask = np.zeros(image_rgb.shape).astype(np.uint8)
     while dpg.is_dearpygui_running():
         # updating the texture in a while loop the frame rate will be limited to the camera frame rate.
         # commenting out the "ret, frame = vid.read()" line will show the full speed that operations and updating a texture can run at
-        img = out_img[:]
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        dpg.set_value("texture_tag", img.astype(np.float32))
+        #img = to_numpy_array(shared_buffer, img_size)
+
+        #print(img)
+        arr = np.frombuffer(shared_buffer.get_obj(), dtype=np.int32).reshape(img_size[0], img_size[1])
+        #print('received', arr.shape, arr.dtype, arr)
+
+        img = cv2.cvtColor(arr.astype(np.uint8), cv2.COLOR_BGR2RGB)
+        if(i%20 == 0):
+            res = model(img)
+            if(len(res) > 0):
+                det = res[0].boxes.xyxy.numpy()
+
+                if(len(det) > 0):
+                    conf = res[0].boxes.conf.numpy()[0]
+                    if(conf > 0.8):
+                        x1,y1,x2,y2 = det[0].astype(np.int32)
+                        #print(x1,y1,x2,y2)
+                        cv2.rectangle(coverage_mask, (x1,y1), (x2,y2), (255,255,0), 1)
+
+
+        i += 1
+        img = cv2.addWeighted(img,0.7,coverage_mask,0.3,0)
+        img = img.astype(np.float32) / 255.
+        dpg.set_value("texture_tag", img)
 
         # to compare to the base example in the open cv tutorials uncomment below
         #cv.imshow('frame', frame)
