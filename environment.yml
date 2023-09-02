@@ -1,0 +1,7 @@
+name: basler
+channels:
+  - defaults
+dependencies:
+  - notebook
+  - matplotlib
+prefix: C:\Users\Basler\.conda\envs\basler
