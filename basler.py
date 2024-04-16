@@ -9,7 +9,7 @@ from vidgear.gears import WriteGear
 def find_camera(serial_number):
     tlf = pylon.TlFactory.GetInstance()
     devices = tlf.EnumerateDevices()
-
+    #print(devices)
     for d in devices:
         print(d.GetSerialNumber())
         if(str(d.GetSerialNumber()) == str(serial_number)):
@@ -34,7 +34,7 @@ class BaslerCamera():
     def __init__(self, cam_id, controller):
         self.cam_id = cam_id
         self.controller = controller
-
+        #print(find_camera(self.cam_id))
         assert not find_camera(self.cam_id) == None, f"Camera {self.cam_id} not found!"
 
         self.is_stopped = False
@@ -57,7 +57,7 @@ class BaslerCamera():
         return self.cam
 
     def grabAndWrite(self, shared_out_buffer):
-        img_size = (750, 1000)
+        img_size = (600, 960)
         #writer = cv2.VideoWriter(f'video_{cam_id}.avi',
     #                         cv2.VideoWriter_fourcc(*'MJPG'),
         #                     50, size)

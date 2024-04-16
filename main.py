@@ -10,6 +10,7 @@ import os
 import signal
 import ultralytics
 import ctypes
+import torch
 
 class Controller():
     def __init__(self):
@@ -31,11 +32,13 @@ def to_numpy_array(shared_array, shape):
     return arr.reshape(shape)
 
 if __name__ == '__main__':
-    model = ultralytics.YOLO('models/bat_detection_v16/weights/best.onnx')
-
+    model = ultralytics.YOLO('models/bat_detection_yolov8n_v6/best.onnx')
+    #model = ultralytics.YOLO('models/bat_detection_v16/weights/best.onnx')
+    #model = ultralytics.YOLO('models/pruned_230827/weights/best_pruned.pt')
+    #model = torch.hub.load(".", 'custom', path="/home/batlab/rt-camera-tracking/models/pruned_230827/weights/best_pruned.pt", source='local', force_reload=True)
     os.environ["PYLON_CAMEMU"] = "0"
 
-    img_size = (750, 1000)
+    img_size = (600, 960)
     image_rgba = np.zeros((img_size[0], img_size[1], 4), dtype=np.float32)
     image_rgba[:, :, -1] = 1
 
@@ -85,7 +88,7 @@ if __name__ == '__main__':
         #print('received', arr.shape, arr.dtype, arr)
 
         img = cv2.cvtColor(arr.astype(np.uint8), cv2.COLOR_BGR2RGB)
-        if(i%20 == 0):
+        if(i%15 == 0):
             res = model(img)
             if(len(res) > 0):
                 det = res[0].boxes.xyxy.numpy()
@@ -94,6 +97,13 @@ if __name__ == '__main__':
                     conf = res[0].boxes.conf.numpy()[0]
                     if(conf > 0.8):
                         x1,y1,x2,y2 = det[0].astype(np.int32)
+                        xc = (x1+x2)/2
+                        yc = (y1+y2)/2
+
+                        x1 = int(xc-3)
+                        x2 = int(xc+3)
+                        y1 = int(yc-3)
+                        y2 = int(yc+3)
                         #print(x1,y1,x2,y2)
                         cv2.rectangle(coverage_mask, (x1,y1), (x2,y2), (255,255,0), 1)
 
